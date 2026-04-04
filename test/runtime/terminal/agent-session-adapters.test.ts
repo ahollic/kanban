@@ -677,4 +677,35 @@ model = "kimi-for-coding"
 		});
 		expect(kimiAutoLaunch.args).toContain("--yolo");
 	});
+
+	it("appends Kanban sidebar instructions for home Kimi sessions via --agent-file", async () => {
+		setupTempHome();
+		setKanbanProcessContext();
+		const launch = await prepareAgentLaunch({
+			taskId: "__home_agent__:workspace-1:kimi",
+			agentId: "kimi",
+			binary: "kimi",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+		});
+
+		const agentFileIndex = launch.args.indexOf("--agent-file");
+		expect(agentFileIndex).toBeGreaterThanOrEqual(0);
+		const agentFilePath = launch.args[agentFileIndex + 1];
+		expect(agentFilePath).toBeDefined();
+		expect(existsSync(agentFilePath ?? "")).toBe(true);
+
+		const agentFileContent = readFileSync(agentFilePath ?? "", "utf8");
+		expect(agentFileContent).toContain("extend: default");
+		expect(agentFileContent).toContain("system_prompt_path:");
+
+		// Extract system_prompt_path from YAML and verify its content
+		const pathMatch = agentFileContent.match(/system_prompt_path:\s*(.+)/);
+		expect(pathMatch?.[1]).toBeDefined();
+		const systemPromptContent = readFileSync(pathMatch?.[1]?.trim() ?? "", "utf8");
+		expect(systemPromptContent).toContain("Kanban sidebar agent");
+		expect(systemPromptContent).toContain("task create");
+		expect(systemPromptContent).toContain("Current home agent: `kimi`");
+	});
 });

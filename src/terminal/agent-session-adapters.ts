@@ -1348,7 +1348,7 @@ async function resolveKimiUserConfigPath(): Promise<string | null> {
 	return null;
 }
 
-function buildKimiMergedConfig(userConfigContent: string | null, taskId: string, workspaceId: string): string {
+function buildKimiMergedConfig(userConfigContent: string | null, _taskId: string, _workspaceId: string): string {
 	const reviewCommand = buildHooksCommand(["ingest", "--event", "to_review", "--source", "kimi"]);
 	const inProgressCommand = buildHooksCommand(["ingest", "--event", "to_in_progress", "--source", "kimi"]);
 	const activityCommand = buildHooksCommand(["ingest", "--event", "activity", "--source", "kimi"]);
@@ -1425,6 +1425,21 @@ const kimiAdapter: AgentSessionAdapter = {
 			if (!hasCliOption(args, "--config-file")) {
 				args.push("--config-file", mergedConfigPath);
 			}
+		}
+
+		const appendedSystemPrompt = resolveHomeAgentAppendSystemPrompt(input.taskId);
+		if (appendedSystemPrompt && !hasCliOption(args, "--agent-file") && !hasCliOption(args, "--agent")) {
+			// Kimi CLI supports custom agent specs via --agent-file that can include a system_prompt_path.
+			// Generate a temporary agent YAML that extends the default and injects the sidebar prompt.
+			const agentDir = getHookAgentDirectory("kimi");
+			const systemPromptPath = join(agentDir, "sidebar-system-prompt.md");
+			const agentFilePath = join(agentDir, "sidebar-agent.yaml");
+			await ensureTextFile(systemPromptPath, appendedSystemPrompt);
+			await ensureTextFile(
+				agentFilePath,
+				["version: 1", "agent:", "  extend: default", `  system_prompt_path: ${systemPromptPath}`].join("\n"),
+			);
+			args.push("--agent-file", agentFilePath);
 		}
 
 		const trimmed = input.prompt.trim();
