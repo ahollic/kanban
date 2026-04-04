@@ -985,6 +985,9 @@ export class TerminalSessionManager implements TerminalSessionService {
 		if (wasSuppressed) {
 			return false;
 		}
+		if (entry.summary.state === "awaiting_review" && entry.summary.reviewReason === "hook") {
+			return false;
+		}
 		if (entry.listeners.size === 0 || entry.restartRequest?.kind !== "task") {
 			return false;
 		}

@@ -60,6 +60,17 @@ export function reduceSessionTransition(
 			if (event.interrupted) {
 				reason = "interrupted";
 			}
+			// Preserve hook-based review state — allows task resume via canReturnToRunning("hook").
+			if (summary.state === "awaiting_review" && summary.reviewReason === "hook") {
+				return {
+					changed: true,
+					patch: {
+						exitCode: event.exitCode,
+						pid: null,
+					},
+					clearAttentionBuffer: false,
+				};
+			}
 			return {
 				changed: true,
 				patch: {

@@ -65,6 +65,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 	const clineSummaryUnsubscribeByWorkspaceId = new Map<string, () => void>();
 	const clineMessageUnsubscribeByWorkspaceId = new Map<string, () => void>();
 	const clinePreviousSummaryByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
+	const terminalPreviousSummaryByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
 	const pendingTaskSessionSummariesByWorkspaceId = new Map<string, Map<string, RuntimeTaskSessionSummary>>();
 	const taskSessionBroadcastTimersByWorkspaceId = new Map<string, NodeJS.Timeout>();
 	const runtimeStateClientsByWorkspaceId = new Map<string, Set<WebSocket>>();
@@ -497,8 +498,15 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 			if (terminalSummaryUnsubscribeByWorkspaceId.has(workspaceId)) {
 				return;
 			}
+			const previousSummariesByTaskId = new Map<string, RuntimeTaskSessionSummary>();
+			terminalPreviousSummaryByWorkspaceId.set(workspaceId, previousSummariesByTaskId);
 			const unsubscribe = manager.onSummary((summary) => {
+				const previousSummary = previousSummariesByTaskId.get(summary.taskId);
+				previousSummariesByTaskId.set(summary.taskId, summary);
 				queueTaskSessionSummaryBroadcast(workspaceId, summary);
+				if (previousSummary && previousSummary.state !== "awaiting_review" && summary.state === "awaiting_review") {
+					broadcastTaskReadyForReview(workspaceId, summary.taskId);
+				}
 			});
 			terminalSummaryUnsubscribeByWorkspaceId.set(workspaceId, unsubscribe);
 		},
@@ -566,6 +574,7 @@ export function createRuntimeStateHub(deps: CreateRuntimeStateHubDependencies): 
 				}
 			}
 			terminalSummaryUnsubscribeByWorkspaceId.clear();
+			terminalPreviousSummaryByWorkspaceId.clear();
 			for (const unsubscribe of clineSummaryUnsubscribeByWorkspaceId.values()) {
 				try {
 					unsubscribe();

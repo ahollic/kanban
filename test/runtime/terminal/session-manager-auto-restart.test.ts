@@ -117,6 +117,46 @@ describe("TerminalSessionManager auto-restart", () => {
 		expect(manager.getSummary("task-1")?.pid).toBeNull();
 	});
 
+	it("does not restart a task awaiting hook review", async () => {
+		const spawnedSessions: Array<ReturnType<typeof createMockPtySession>> = [];
+		ptySessionSpawnMock.mockImplementation((request: MockSpawnRequest) => {
+			const session = createMockPtySession(111, request);
+			spawnedSessions.push(session);
+			return session;
+		});
+
+		const manager = new TerminalSessionManager();
+		manager.attach("task-1", {
+			onState: vi.fn(),
+			onOutput: vi.fn(),
+			onExit: vi.fn(),
+		});
+
+		await manager.startTaskSession({
+			taskId: "task-1",
+			agentId: "kimi",
+			binary: "kimi",
+			args: [],
+			cwd: "/tmp/task-1",
+			prompt: "Fix the bug",
+		});
+
+		// Simulate hook transitioning task to awaiting_review.
+		manager.transitionToReview("task-1", "hook");
+		expect(manager.getSummary("task-1")?.state).toBe("awaiting_review");
+		expect(manager.getSummary("task-1")?.reviewReason).toBe("hook");
+
+		// Process exits after hook — should NOT auto-restart.
+		spawnedSessions[0]?.triggerExit(0);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(ptySessionSpawnMock).toHaveBeenCalledTimes(1);
+		expect(manager.getSummary("task-1")?.state).toBe("awaiting_review");
+		expect(manager.getSummary("task-1")?.reviewReason).toBe("hook");
+		expect(manager.getSummary("task-1")?.exitCode).toBe(0);
+	});
+
 	it("sends deferred Codex startup input when the prompt marker appears", async () => {
 		const deferredStartupInput = "\u001b[200~/plan Validate rollout\u001b[201~\r";
 		prepareAgentLaunchMock.mockResolvedValue({
