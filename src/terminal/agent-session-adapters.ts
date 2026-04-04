@@ -1327,6 +1327,118 @@ const clineAdapter: AgentSessionAdapter = {
 	},
 };
 
+function getKimiConfigPathCandidates(): string[] {
+	const home = process.env.HOME || process.env.USERPROFILE;
+	if (!home) {
+		return [];
+	}
+	return [join(home, ".kimi", "config.toml")];
+}
+
+async function resolveKimiUserConfigPath(): Promise<string | null> {
+	const candidates = getKimiConfigPathCandidates();
+	for (const candidate of candidates) {
+		try {
+			await access(candidate);
+			return candidate;
+		} catch {
+			// Keep searching.
+		}
+	}
+	return null;
+}
+
+function buildKimiMergedConfig(userConfigContent: string | null, taskId: string, workspaceId: string): string {
+	const reviewCommand = buildHooksCommand(["ingest", "--event", "to_review", "--source", "kimi"]);
+	const inProgressCommand = buildHooksCommand(["ingest", "--event", "to_in_progress", "--source", "kimi"]);
+	const activityCommand = buildHooksCommand(["ingest", "--event", "activity", "--source", "kimi"]);
+	const lines: string[] = [];
+
+	if (userConfigContent) {
+		// Remove empty hooks = [] to avoid TOML conflict with [[hooks]]
+		lines.push(userConfigContent.replace(/^hooks\s*=\s*\[\]\s*$/gm, ""));
+	}
+
+	lines.push("# Kanban integration hooks (auto-injected)");
+	lines.push("[[hooks]]");
+	lines.push('event = "Stop"');
+	lines.push(`command = "${reviewCommand}"`);
+	lines.push("[[hooks]]");
+	lines.push('event = "Notification"');
+	lines.push('matcher = "permission_prompt"');
+	lines.push(`command = "${reviewCommand}"`);
+	lines.push("[[hooks]]");
+	lines.push('event = "PreToolUse"');
+	lines.push(`command = "${activityCommand}"`);
+	lines.push("[[hooks]]");
+	lines.push('event = "PostToolUse"');
+	lines.push(`command = "${inProgressCommand}"`);
+	lines.push("[[hooks]]");
+	lines.push('event = "UserPromptSubmit"');
+	lines.push(`command = "${inProgressCommand}"`);
+
+	return lines.join("\n");
+}
+
+const kimiAdapter: AgentSessionAdapter = {
+	async prepare(input) {
+		const args = [...input.args];
+		const env: Record<string, string | undefined> = {};
+
+		if (input.autonomousModeEnabled && !hasCliOption(args, "--yolo") && !hasCliOption(args, "-y")) {
+			args.push("--yolo");
+		}
+
+		if (input.resumeFromTrash && !hasCliOption(args, "--continue") && !hasCliOption(args, "-C")) {
+			args.push("--continue");
+		}
+
+		if (input.startInPlanMode) {
+			args.push("--plan");
+		}
+
+		const hooks = resolveHookContext(input);
+		if (hooks) {
+			Object.assign(
+				env,
+				createHookRuntimeEnv({
+					taskId: hooks.taskId,
+					workspaceId: hooks.workspaceId,
+				}),
+			);
+
+			// Merge user config with Kanban hooks
+			const userConfigPath = await resolveKimiUserConfigPath();
+			let userConfigContent: string | null = null;
+			if (userConfigPath) {
+				try {
+					userConfigContent = await readFile(userConfigPath, "utf8");
+				} catch {
+					// Ignore read errors
+				}
+			}
+
+			const mergedConfig = buildKimiMergedConfig(userConfigContent, hooks.taskId, hooks.workspaceId);
+			const mergedConfigPath = join(getHookAgentDirectory("kimi"), "config.toml");
+			await ensureTextFile(mergedConfigPath, mergedConfig);
+
+			if (!hasCliOption(args, "--config-file")) {
+				args.push("--config-file", mergedConfigPath);
+			}
+		}
+
+		const trimmed = input.prompt.trim();
+		if (trimmed) {
+			args.push("--prompt", trimmed);
+		}
+
+		return {
+			args,
+			env,
+		};
+	},
+};
+
 const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	claude: claudeAdapter,
 	codex: codexAdapter,
@@ -1334,6 +1446,7 @@ const ADAPTERS: Record<RuntimeAgentId, AgentSessionAdapter> = {
 	opencode: opencodeAdapter,
 	droid: droidAdapter,
 	cline: clineAdapter,
+	kimi: kimiAdapter,
 };
 
 export async function prepareAgentLaunch(input: AgentAdapterLaunchInput): Promise<PreparedAgentLaunch> {

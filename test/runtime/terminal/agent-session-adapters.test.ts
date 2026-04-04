@@ -590,4 +590,91 @@ describe("prepareAgentLaunch hook strategies", () => {
 		});
 		expect(clineLaunch.args).toContain("--auto-approve-all");
 	});
+
+	it("merges Kimi hooks into user config and uses --config-file", async () => {
+		setupTempHome();
+
+		// Create a mock user config.toml with empty hooks array
+		const kimiDir = join(homedir(), ".kimi");
+		mkdirSync(kimiDir, { recursive: true });
+		writeFileSync(
+			join(kimiDir, "config.toml"),
+			`default_model = "kimi-for-coding"
+default_yolo = true
+hooks = []
+
+[models.kimi-for-coding]
+provider = "kimi"
+model = "kimi-for-coding"
+`,
+			"utf8",
+		);
+
+		const launch = await prepareAgentLaunch({
+			taskId: "task-1",
+			agentId: "kimi",
+			binary: "kimi",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+			workspaceId: "workspace-1",
+		});
+
+		expect(launch.env.KANBAN_HOOK_TASK_ID).toBe("task-1");
+		expect(launch.env.KANBAN_HOOK_WORKSPACE_ID).toBe("workspace-1");
+
+		// Verify --config-file points to merged config
+		const configFileArgIndex = launch.args.indexOf("--config-file");
+		expect(configFileArgIndex).toBeGreaterThanOrEqual(0);
+		const configPath = launch.args[configFileArgIndex + 1];
+		expect(configPath).toBeDefined();
+		expect(existsSync(configPath ?? "")).toBe(true);
+
+		// Verify merged config contains both user settings and Kanban hooks
+		const configContent = readFileSync(configPath ?? "", "utf8");
+		expect(configContent).toContain('default_model = "kimi-for-coding"');
+		expect(configContent).toContain("default_yolo = true");
+		// Empty hooks = [] should be removed to avoid TOML conflict
+		expect(configContent).not.toMatch(/^hooks = \[\]$/m);
+		expect(configContent).toContain("# Kanban integration hooks (auto-injected)");
+		expect(configContent).toContain("[[hooks]]");
+		expect(configContent).toContain('event = "Stop"');
+		expect(configContent).toContain('event = "Notification"');
+		expect(configContent).toContain('matcher = "permission_prompt"');
+		expect(configContent).toContain('event = "PreToolUse"');
+		expect(configContent).toContain('event = "PostToolUse"');
+		expect(configContent).toContain('event = "UserPromptSubmit"');
+		// Verify commands contain expected hook events and source
+		expect(configContent).toContain("ingest");
+		expect(configContent).toContain("to_review");
+		expect(configContent).toContain("to_in_progress");
+		expect(configContent).toContain("activity");
+		expect(configContent).toContain("kimi");
+	});
+
+	it("adds Kimi resume and autonomous flags", async () => {
+		setupTempHome();
+
+		const kimiLaunch = await prepareAgentLaunch({
+			taskId: "task-kimi",
+			agentId: "kimi",
+			binary: "kimi",
+			args: [],
+			cwd: "/tmp",
+			prompt: "",
+			resumeFromTrash: true,
+		});
+		expect(kimiLaunch.args).toContain("--continue");
+
+		const kimiAutoLaunch = await prepareAgentLaunch({
+			taskId: "task-kimi-auto",
+			agentId: "kimi",
+			binary: "kimi",
+			args: [],
+			autonomousModeEnabled: true,
+			cwd: "/tmp",
+			prompt: "",
+		});
+		expect(kimiAutoLaunch.args).toContain("--yolo");
+	});
 });

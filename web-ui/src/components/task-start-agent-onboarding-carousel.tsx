@@ -83,7 +83,7 @@ export const TASK_START_ONBOARDING_SLIDES: OnboardingSlide[] = [
 	},
 ];
 
-const ONBOARDING_AGENT_IDS: readonly RuntimeAgentId[] = ["cline", "claude", "codex", "droid"];
+const ONBOARDING_AGENT_IDS: readonly RuntimeAgentId[] = ["cline", "claude", "codex", "droid", "kimi"];
 const FALLBACK_ONBOARDING_SLIDE: OnboardingSlide = {
 	kind: "agent-selection",
 	title: "",
@@ -302,6 +302,9 @@ function resolveInstallInstructions(agentId: RuntimeAgentId): string {
 	if (agentId === "droid") {
 		return "Factory's coding agent with access to the latest frontier models";
 	}
+	if (agentId === "kimi") {
+		return "Moonshot AI's coding agent with Kimi models.";
+	}
 	return "Install from the official docs.";
 }
 
@@ -313,6 +316,9 @@ function getInstallLinkLabel(agentId: RuntimeAgentId): string {
 		return "Learn more";
 	}
 	if (agentId === "droid") {
+		return "Learn more";
+	}
+	if (agentId === "kimi") {
 		return "Learn more";
 	}
 	return "Install guide";
