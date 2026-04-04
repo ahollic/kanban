@@ -1443,13 +1443,15 @@ const kimiAdapter: AgentSessionAdapter = {
 		}
 
 		const trimmed = input.prompt.trim();
+		let deferredStartupInput: string | undefined;
 		if (trimmed) {
-			args.push("--prompt", trimmed);
+			deferredStartupInput = toBracketedPasteSubmission(trimmed);
 		}
 
 		return {
 			args,
 			env,
+			deferredStartupInput,
 		};
 	},
 };

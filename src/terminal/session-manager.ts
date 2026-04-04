@@ -202,14 +202,18 @@ function hasCodexStartupUiRendered(text: string): boolean {
 	return stripped.includes("openai codex (v");
 }
 
+function hasKimiInteractivePrompt(text: string): boolean {
+	return text.includes("\u2728");
+}
+
 export class TerminalSessionManager implements TerminalSessionService {
 	private readonly entries = new Map<string, SessionEntry>();
 	private readonly summaryListeners = new Set<(summary: RuntimeTaskSessionSummary) => void>();
 
-	private trySendDeferredCodexStartupInput(taskId: string): boolean {
+	private trySendDeferredStartupInput(taskId: string): boolean {
 		const entry = this.entries.get(taskId);
 		const active = entry?.active;
-		if (!entry || !active || entry.summary.agentId !== "codex") {
+		if (!entry || !active) {
 			return false;
 		}
 		if (active.deferredStartupInput === null) {
@@ -405,19 +409,22 @@ export class TerminalSessionManager implements TerminalSessionService {
 					}
 					updateSummary(entry, { lastOutputAt: now() });
 
-					// Codex plan-mode startup input is deferred until we know the TUI rendered.
-					// Trigger on either the interactive prompt marker or the startup header text.
-					if (
-						entry.summary.agentId === "codex" &&
-						entry.active.deferredStartupInput !== null &&
-						data.length > 0 &&
-						(hasCodexInteractivePrompt(data) ||
-							hasCodexStartupUiRendered(data) ||
-							(entry.active.workspaceTrustBuffer !== null &&
-								(hasCodexInteractivePrompt(entry.active.workspaceTrustBuffer) ||
-									hasCodexStartupUiRendered(entry.active.workspaceTrustBuffer))))
-					) {
-						this.trySendDeferredCodexStartupInput(request.taskId);
+					// Deferred startup input is sent once the agent shell is ready for input.
+					if (entry.active.deferredStartupInput !== null && data.length > 0) {
+						let ready = false;
+						if (entry.summary.agentId === "codex") {
+							ready =
+								hasCodexInteractivePrompt(data) ||
+								hasCodexStartupUiRendered(data) ||
+								(entry.active.workspaceTrustBuffer !== null &&
+									(hasCodexInteractivePrompt(entry.active.workspaceTrustBuffer) ||
+										hasCodexStartupUiRendered(entry.active.workspaceTrustBuffer)));
+						} else if (entry.summary.agentId === "kimi") {
+							ready = hasKimiInteractivePrompt(data);
+						}
+						if (ready) {
+							this.trySendDeferredStartupInput(request.taskId);
+						}
 					}
 
 					const adapterEvent = entry.active.detectOutputTransition?.(data, entry.summary) ?? null;
