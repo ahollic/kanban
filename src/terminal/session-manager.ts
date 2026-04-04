@@ -374,6 +374,7 @@ export class TerminalSessionManager implements TerminalSessionService {
 
 					const needsDecodedOutput =
 						entry.active.workspaceTrustBuffer !== null ||
+						entry.active.deferredStartupInput !== null ||
 						(entry.active.detectOutputTransition !== null &&
 							(entry.active.shouldInspectOutputForTransition?.(entry.summary) ?? true));
 					const data = needsDecodedOutput ? filteredChunk.toString("utf8") : "";
