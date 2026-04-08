@@ -37,6 +37,7 @@ import { RuntimeDisconnectedFallback } from "@/hooks/runtime-disconnected-fallba
 import { useAppHotkeys } from "@/hooks/use-app-hotkeys";
 import { useBoardInteractions } from "@/hooks/use-board-interactions";
 import { useDebugTools } from "@/hooks/use-debug-tools";
+import { useDetailTaskNavigation } from "@/hooks/use-detail-task-navigation";
 import { useDocumentVisibility } from "@/hooks/use-document-visibility";
 import { useFeaturebaseFeedbackWidget } from "@/hooks/use-featurebase-feedback-widget";
 import { useGitActions } from "@/hooks/use-git-actions";
@@ -74,13 +75,13 @@ import {
 	replaceWorkspaceMetadata,
 	resetWorkspaceMetadataStore,
 } from "@/stores/workspace-metadata-store";
-import { TERMINAL_THEME_COLORS } from "@/terminal/theme-colors";
+import { useTerminalThemeColors } from "@/terminal/theme-colors";
 import type { BoardData } from "@/types";
 
 export default function App(): ReactElement {
+	const terminalThemeColors = useTerminalThemeColors();
 	const [board, setBoard] = useState<BoardData>(() => createInitialBoardData());
 	const [sessions, setSessions] = useState<Record<string, RuntimeTaskSessionSummary>>({});
-	const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 	const [canPersistWorkspaceState, setCanPersistWorkspaceState] = useState(false);
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const [settingsInitialSection, setSettingsInitialSection] = useState<RuntimeSettingsSection | null>(null);
@@ -92,7 +93,6 @@ export default function App(): ReactElement {
 	const lastStreamErrorRef = useRef<string | null>(null);
 	const handleProjectSwitchStart = useCallback(() => {
 		setCanPersistWorkspaceState(false);
-		setSelectedTaskId(null);
 		setIsGitHistoryOpen(false);
 		setPendingTaskStartAfterEditId(null);
 		taskEditorResetRef.current();
@@ -205,12 +205,6 @@ export default function App(): ReactElement {
 		setSessions,
 	});
 
-	const selectedCard = useMemo(() => {
-		if (!selectedTaskId) {
-			return null;
-		}
-		return findCardSelection(board, selectedTaskId);
-	}, [board, selectedTaskId]);
 	const {
 		workspacePath,
 		workspaceGit,
@@ -230,6 +224,16 @@ export default function App(): ReactElement {
 		setBoard,
 		setSessions,
 		setCanPersistWorkspaceState,
+	});
+	const { selectedTaskId, selectedCard, setSelectedTaskId, handleBack } = useDetailTaskNavigation({
+		board,
+		currentProjectId,
+		isAwaitingWorkspaceSnapshot,
+		isInitialRuntimeLoad,
+		isProjectSwitching,
+		onDetailClosed: () => {
+			setIsGitHistoryOpen(false);
+		},
 	});
 
 	useEffect(() => {
@@ -499,7 +503,6 @@ export default function App(): ReactElement {
 	}, [isRuntimeDisconnected, streamError]);
 
 	useEffect(() => {
-		setSelectedTaskId(null);
 		resetTaskEditorState();
 		setIsClearTrashDialogOpen(false);
 		resetGitActionState();
@@ -512,12 +515,6 @@ export default function App(): ReactElement {
 		resetTaskEditorState,
 		resetTerminalPanelsState,
 	]);
-
-	useEffect(() => {
-		if (selectedTaskId && !selectedCard) {
-			setSelectedTaskId(null);
-		}
-	}, [selectedTaskId, selectedCard]);
 
 	useEffect(() => {
 		if (selectedCard) {
@@ -535,11 +532,6 @@ export default function App(): ReactElement {
 		() => workspacePath ?? navigationProjectPath ?? null,
 		[navigationProjectPath, workspacePath],
 	);
-
-	const handleBack = useCallback(() => {
-		setSelectedTaskId(null);
-		setIsGitHistoryOpen(false);
-	}, []);
 
 	const handleOpenSettings = useCallback((section?: RuntimeSettingsSection) => {
 		setSettingsInitialSection(section ?? null);
@@ -929,9 +921,9 @@ export default function App(): ReactElement {
 													onClose={closeHomeTerminal}
 													minimalHeaderTitle="Terminal"
 													minimalHeaderSubtitle={homeTerminalSubtitle}
-													panelBackgroundColor={TERMINAL_THEME_COLORS.surfaceRaised}
-													terminalBackgroundColor={TERMINAL_THEME_COLORS.surfaceRaised}
-													cursorColor={TERMINAL_THEME_COLORS.textPrimary}
+													panelBackgroundColor={terminalThemeColors.surfaceRaised}
+													terminalBackgroundColor={terminalThemeColors.surfaceRaised}
+													cursorColor={terminalThemeColors.textPrimary}
 													onConnectionReady={markTerminalConnectionReady}
 													agentCommand={agentCommand}
 													onSendAgentCommand={handleSendAgentCommandToHomeTerminal}
