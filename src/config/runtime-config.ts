@@ -4,7 +4,7 @@
 import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
+import { getRuntimeAgentCatalogEntry, isRuntimeAgentLaunchSupported } from "../core/agent-catalog";
 import type { RuntimeAgentId, RuntimeProjectShortcut } from "../core/api-contract";
 import { type LockRequest, lockedFileSystem } from "../fs/locked-file-system";
 import { detectInstalledCommands } from "../terminal/agent-registry";
@@ -103,7 +103,9 @@ Steps:
 export function pickBestInstalledAgentIdFromDetected(detectedCommands: readonly string[]): RuntimeAgentId | null {
 	const detected = new Set(detectedCommands);
 	for (const agentId of AUTO_SELECT_AGENT_PRIORITY) {
-		if (detected.has(agentId)) {
+		const catalogEntry = getRuntimeAgentCatalogEntry(agentId);
+		const binary = catalogEntry?.binary ?? agentId;
+		if (detected.has(binary) || detected.has(agentId)) {
 			return agentId;
 		}
 	}
