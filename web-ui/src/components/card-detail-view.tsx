@@ -20,6 +20,7 @@ import { useResizeDrag } from "@/resize/use-resize-drag";
 import { isNativeClineAgentSelected } from "@/runtime/native-agent";
 import type {
 	RuntimeAgentId,
+	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
 	RuntimeTaskSessionMode,
 	RuntimeTaskSessionSummary,
@@ -34,6 +35,7 @@ import { useWindowEvent } from "@/utils/react-use";
 // We still poll the open detail diff because line content can change without changing
 // the overall file or line counts that drive the shared workspace metadata stream.
 const DETAIL_DIFF_POLL_INTERVAL_MS = 1_000;
+const DIFF_MODE_ACTIVE_BACKGROUND = "color-mix(in srgb, var(--color-surface-3) 80%, var(--color-text-primary))";
 
 function isTypingTarget(target: EventTarget | null): boolean {
 	if (!(target instanceof HTMLElement)) {
@@ -165,7 +167,7 @@ function BottomTerminalSection({
 					onClose={onClose}
 					minimalHeaderTitle="Terminal"
 					minimalHeaderSubtitle={subtitle}
-					panelBackgroundColor={terminalThemeColors.surfaceRaised}
+					panelBackgroundColor="var(--color-surface-1)"
 					terminalBackgroundColor={terminalThemeColors.surfaceRaised}
 					cursorColor={terminalThemeColors.textPrimary}
 					onConnectionReady={onConnectionReady}
@@ -248,7 +250,7 @@ function DiffModeButton({
 			style={
 				active
 					? {
-							backgroundColor: "var(--color-surface-3)",
+							backgroundColor: DIFF_MODE_ACTIVE_BACKGROUND,
 							color: "var(--color-text-primary)",
 						}
 					: undefined
@@ -363,6 +365,7 @@ export function CardDetailView({
 	onBottomTerminalToggleExpand,
 	isDocumentVisible = true,
 	onClineSettingsSaved,
+	onTaskClineSettingsChanged,
 }: {
 	selection: CardSelection;
 	currentProjectId: string | null;
@@ -424,6 +427,11 @@ export function CardDetailView({
 	onBottomTerminalToggleExpand?: () => void;
 	isDocumentVisible?: boolean;
 	onClineSettingsSaved?: () => void;
+	onTaskClineSettingsChanged?: (settings: {
+		providerId: string;
+		modelId: string;
+		reasoningEffort: RuntimeClineReasoningEffort | "";
+	}) => void;
 }): React.ReactElement {
 	const isMobile = useIsMobile();
 	const [mobileTab, setMobileTab] = useState<MobileTab>("chat");
@@ -446,6 +454,8 @@ export function CardDetailView({
 	const { startDrag: startAgentPanelResize } = useResizeDrag();
 	const { startDrag: startDetailDiffResize } = useResizeDrag();
 	const detailLayoutRef = useRef<HTMLDivElement | null>(null);
+	const hasExplicitTaskClineSettings =
+		selection.card.agentId === "cline" || selection.card.clineSettings !== undefined;
 	const mainRowRef = useRef<HTMLDivElement | null>(null);
 	const detailDiffRowRef = useRef<HTMLDivElement | null>(null);
 	const clineAgentChatPanelRef = useRef<ClineAgentChatPanelHandle | null>(null);
@@ -502,7 +512,8 @@ export function CardDetailView({
 	const detailDiffFileTreePanelFlex = `0 0 ${detailDiffFileTreePanelPercent}`;
 	const showMoveToTrashActions = selection.column.id === "review" || selection.column.id === "in_progress";
 	const isTaskTerminalEnabled = selection.column.id === "in_progress" || selection.column.id === "review";
-	const showClineAgentChatPanel = isNativeClineAgentSelected(sessionSummary?.agentId ?? selectedAgentId);
+	const effectiveTaskAgentId = sessionSummary?.agentId ?? selection.card.agentId ?? selectedAgentId;
+	const showClineAgentChatPanel = isNativeClineAgentSelected(effectiveTaskAgentId);
 	const availablePaths = useMemo(() => {
 		if (!runtimeFiles || runtimeFiles.length === 0) {
 			return [];
@@ -630,7 +641,10 @@ export function CardDetailView({
 			showComposerModeToggle={false}
 			workspaceId={currentProjectId}
 			runtimeConfig={runtimeConfig}
+			taskClineSettings={selection.card.clineSettings}
+			taskHasExplicitClineSettings={hasExplicitTaskClineSettings}
 			onClineSettingsSaved={onClineSettingsSaved}
+			onTaskClineSettingsChanged={onTaskClineSettingsChanged}
 			onSendMessage={onSendClineChatMessage}
 			onCancelTurn={onCancelClineChatTurn}
 			onLoadMessages={onLoadClineChatMessages}
@@ -680,8 +694,9 @@ export function CardDetailView({
 					? getTaskAutoReviewCancelButtonLabel(selection.card.autoReviewMode)
 					: null
 			}
-			panelBackgroundColor={terminalThemeColors.surfacePrimary}
+			panelBackgroundColor="var(--color-surface-0)"
 			terminalBackgroundColor={terminalThemeColors.surfacePrimary}
+			cursorColor={terminalThemeColors.textPrimary}
 			taskColumnId={selection.column.id}
 		/>
 	);
@@ -806,6 +821,7 @@ export function CardDetailView({
 							openPrTaskLoadingById={openPrTaskLoadingById}
 							moveToTrashLoadingById={moveToTrashLoadingById}
 							panelWidth="100%"
+							defaultClineModelId={runtimeConfig?.clineProviderSettings?.modelId ?? null}
 						/>
 					</div>
 					<ResizeHandle

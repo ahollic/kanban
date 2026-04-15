@@ -1,25 +1,42 @@
 # Changelog
 
+## [0.1.62]
+
+- Fixed Cline chats on the home screen not resuming correctly from persisted history, causing conversation context to be lost
+- Fixed Cline thinking indicator hiding prematurely during active requests
+- Reasoning blocks now animate their collapse after finishing streaming
+- Fixed model selector not scrolling to the selected model when opened, and improved visual clarity of the selected model and reasoning effort states
+
+## [0.1.61]
+
+- Added device code authorization for signing into Cline on remote systems
+- Revamped theme system with new theme picker and improved color palettes
+- Fixed duplicate MCP tool registration when using SDK 0.0.34
+- Fixed MCP settings not showing up during Cline setup
+
 ## [0.1.60]
 
-- Pick from 10 new color themes to personalize your board
-- Kiro CLI agent support
-- Cline account organization switching and credit balance display in settings
-- Editable task titles that sync across the board and detail view
-- Mobile-responsive layout for the web UI, including adaptive navigation, task detail views, and chat panels
-- Incremental expand in the diff viewer -- click to show 20 more lines in collapsed context blocks
-- Friendly labels for task commands (like file edits and shell commands) in the sidebar chat
-- Tips container in the sidebar for terminal-based agents (Claude Code, Codex, Kiro)
+- Choose a different agent per task, or change the model and provider for Cline tasks, when creating tasks from the board
+- Adds remote file browser for adding projects when running Kanban on a remote server, with git clone support for adding projects by repository URL
 - HTTPS and passcode authentication support for secure remote access
-- Credit limit banner now appears at the board level with a link to manage your plan
+- Adds Kiro CLI agent support
+- Pick from 10 new color themes to personalize your board
+- Cline account organization switching and credit balance display in settings
+- Set and edit task titles
+- Incremental expand in the diff viewer -- click to show 20 more lines in collapsed context blocks
+- Mobile-responsive layout for the web UI, including adaptive navigation, task detail views, and chat panels
+- Friendly labels for task commands (like file edits and shell commands) in the sidebar chat
+- Cline credit usage notifications with a link to manage your plan
 - Fixed startup onboarding reappearing after being dismissed
 - Fixed browser back button not returning from task detail view to the board
 - Fixed chat state not reinitializing properly when resuming a trashed task
 - Fixed `/clear` not fully resetting chat for restored sessions
 - Fixed diff mode toggle not reflecting its active state
+- Fixed detached notification process orphans on shutdown
 - Disabled unnecessary startup update checks for Codex agent
 - Faster trash restore for Codex tasks by skipping unnecessary session probes
-- Updated Cline SDK from 0.0.28 to 0.0.29, which includes: unified logger interface, restructured LLM provider and model namespaces, renamed telemetry adapter, and updated system prompt API
+- Redesigned settings dialog with sidebar navigation, scroll-spy highlighting, and card-style sections
+- Updated Cline SDK from 0.0.28 to 0.0.33, which includes: checkpoint support (configurable, disabled by default), correct model list for Cline provider via OpenRouter, compaction at 95%, steer messages fix, and team agent identity in event payloads
 
 ## [0.1.59]
 

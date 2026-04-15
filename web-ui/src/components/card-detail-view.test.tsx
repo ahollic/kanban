@@ -304,6 +304,59 @@ describe("CardDetailView", () => {
 		expect(lastCall?.[7]).toBe(true);
 	});
 
+	it("keeps the active diff mode visually highlighted", async () => {
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={createSelection()}
+					currentProjectId="workspace-1"
+					sessionSummary={null}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		const getDiffModeButton = (label: string): HTMLButtonElement => {
+			const button = Array.from(container.querySelectorAll("button")).find(
+				(candidate) => candidate.textContent?.trim() === label,
+			);
+			if (!(button instanceof HTMLButtonElement)) {
+				throw new Error(`Expected a ${label} button.`);
+			}
+			return button;
+		};
+
+		const allChangesButton = getDiffModeButton("All Changes");
+		const lastTurnButton = getDiffModeButton("Last Turn");
+
+		expect(allChangesButton.getAttribute("aria-pressed")).toBe("true");
+		expect(allChangesButton.getAttribute("style")).toContain(
+			"background-color: color-mix(in srgb, var(--color-surface-3) 80%, var(--color-text-primary))",
+		);
+		expect(lastTurnButton.getAttribute("aria-pressed")).toBe("false");
+		expect(lastTurnButton.style.backgroundColor).toBe("");
+
+		await act(async () => {
+			lastTurnButton.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+			lastTurnButton.click();
+		});
+
+		expect(getDiffModeButton("All Changes").getAttribute("aria-pressed")).toBe("false");
+		expect(getDiffModeButton("All Changes").style.backgroundColor).toBe("");
+		expect(getDiffModeButton("Last Turn").getAttribute("aria-pressed")).toBe("true");
+		expect(getDiffModeButton("Last Turn").getAttribute("style")).toContain(
+			"background-color: color-mix(in srgb, var(--color-surface-3) 80%, var(--color-text-primary))",
+		);
+	});
+
 	it("closes git history before handling other Escape behavior", async () => {
 		const onCloseGitHistory = vi.fn();
 
@@ -362,6 +415,33 @@ describe("CardDetailView", () => {
 
 		expect(container.querySelector('[data-testid="cline-agent-chat-panel"]')).toBeInstanceOf(HTMLDivElement);
 		expect(container.querySelector('[data-testid="agent-terminal-panel"]')).toBeNull();
+	});
+
+	it("does not render native chat panel when the task explicitly uses a non-cline agent", async () => {
+		const selection = createSelection();
+		selection.card.agentId = "codex";
+
+		await act(async () => {
+			root.render(
+				<CardDetailView
+					selection={selection}
+					currentProjectId="workspace-1"
+					selectedAgentId="cline"
+					sessionSummary={null}
+					taskSessions={{}}
+					onSessionSummary={() => {}}
+					onCardSelect={() => {}}
+					onTaskDragEnd={() => {}}
+					onMoveToTrash={() => {}}
+					bottomTerminalOpen={false}
+					bottomTerminalTaskId={null}
+					bottomTerminalSummary={null}
+					onBottomTerminalClose={() => {}}
+				/>,
+			);
+		});
+
+		expect(container.querySelector('[data-testid="cline-agent-chat-panel"]')).toBeNull();
 	});
 
 	it("shows cline chat panel when task session agentId is cline even if global agent is claude", async () => {
@@ -464,7 +544,7 @@ describe("CardDetailView", () => {
 
 		const lastCall = mockAgentTerminalPanel.mock.calls.at(-1);
 		expect(lastCall?.[0]).toMatchObject({
-			panelBackgroundColor: TERMINAL_THEME_COLORS.surfacePrimary,
+			panelBackgroundColor: "var(--color-surface-0)",
 			terminalBackgroundColor: TERMINAL_THEME_COLORS.surfacePrimary,
 		});
 	});

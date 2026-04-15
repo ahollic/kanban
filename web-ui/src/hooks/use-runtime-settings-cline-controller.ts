@@ -5,14 +5,17 @@ import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, us
 import { getRuntimeClineProviderSettings } from "@/runtime/native-agent";
 import {
 	addClineProvider,
+	completeClineDeviceAuth,
 	fetchClineProviderCatalog,
 	fetchClineProviderModels,
 	runClineProviderOauthLogin,
 	saveClineProviderSettings,
+	startClineDeviceAuth,
 	updateClineProvider,
 } from "@/runtime/runtime-config-query";
 import type {
 	RuntimeAgentId,
+	RuntimeClineOauthLoginResponse,
 	RuntimeClineOauthProvider,
 	RuntimeClineProviderCapability,
 	RuntimeClineProviderCatalogItem,
@@ -20,13 +23,16 @@ import type {
 	RuntimeClineProviderSettings,
 	RuntimeClineReasoningEffort,
 	RuntimeConfigResponse,
+	RuntimeTaskClineSettings,
 } from "@/runtime/types";
+import { isLocalhostAccess } from "@/utils/localhost-detection";
 
 interface UseRuntimeSettingsClineControllerOptions {
 	open: boolean;
 	workspaceId: string | null;
 	selectedAgentId: RuntimeAgentId;
 	config: RuntimeConfigResponse | null;
+	taskClineSettings?: RuntimeTaskClineSettings;
 }
 
 interface SaveResult {
@@ -119,6 +125,7 @@ export interface UseRuntimeSettingsClineControllerResult {
 	isLoadingProviderCatalog: boolean;
 	isLoadingProviderModels: boolean;
 	isRunningOauthLogin: boolean;
+	deviceAuthInfo: { userCode: string; verificationUrl: string } | null;
 	normalizedProviderId: string;
 	managedOauthProvider: RuntimeClineOauthProvider | null;
 	isOauthProviderSelected: boolean;
@@ -193,7 +200,7 @@ function getDefaultModelIdForProvider(providers: RuntimeClineProviderCatalogItem
 export function useRuntimeSettingsClineController(
 	options: UseRuntimeSettingsClineControllerOptions,
 ): UseRuntimeSettingsClineControllerResult {
-	const { open, workspaceId, selectedAgentId, config } = options;
+	const { open, workspaceId, selectedAgentId, config, taskClineSettings } = options;
 	const [providerId, setProviderId] = useState("");
 	const [modelId, setModelId] = useState("");
 	const [apiKey, setApiKey] = useState("");
@@ -215,17 +222,28 @@ export function useRuntimeSettingsClineController(
 	const [isLoadingProviderCatalog, setIsLoadingProviderCatalog] = useState(false);
 	const [isLoadingProviderModels, setIsLoadingProviderModels] = useState(false);
 	const [isRunningOauthLogin, setIsRunningOauthLogin] = useState(false);
+	const [deviceAuthInfo, setDeviceAuthInfo] = useState<{
+		userCode: string;
+		verificationUrl: string;
+	} | null>(null);
 
 	const effectiveProviderSettings = getEffectiveProviderSettings(config, providerSettingsOverride);
 	const configProviderSettings = getRuntimeClineProviderSettings(config);
-	const initialProviderId = effectiveProviderSettings?.providerId ?? effectiveProviderSettings?.oauthProvider ?? "";
-	const initialModelId = effectiveProviderSettings?.modelId ?? "";
+	const hasTaskClineSettingsOverride = taskClineSettings !== undefined;
+	const initialProviderId =
+		taskClineSettings?.providerId ||
+		effectiveProviderSettings?.providerId ||
+		effectiveProviderSettings?.oauthProvider ||
+		"";
+	const initialModelId = taskClineSettings?.modelId || effectiveProviderSettings?.modelId || "";
 	const initialBaseUrl = resolveBaseUrlForProvider(
 		providerCatalog,
 		initialProviderId,
 		effectiveProviderSettings?.baseUrl,
 	);
-	const initialReasoningEffort = effectiveProviderSettings?.reasoningEffort ?? "";
+	const initialReasoningEffort = hasTaskClineSettingsOverride
+		? (taskClineSettings?.reasoningEffort ?? "")
+		: (effectiveProviderSettings?.reasoningEffort ?? "");
 	const normalizedProviderId = providerId.trim().toLowerCase();
 	const managedOauthProvider = toManagedClineOauthProvider(normalizedProviderId);
 	const isOauthProviderSelected = managedOauthProvider !== null;
@@ -311,13 +329,19 @@ export function useRuntimeSettingsClineController(
 		if (!open) {
 			return;
 		}
-		const nextProviderId = configProviderSettings.providerId ?? configProviderSettings.oauthProvider ?? "";
+		const nextProviderId =
+			taskClineSettings?.providerId ||
+			(configProviderSettings.providerId ?? configProviderSettings.oauthProvider ?? "");
 		setProviderId(nextProviderId);
-		setModelId(configProviderSettings.modelId ?? "");
+		setModelId(taskClineSettings?.modelId || (configProviderSettings.modelId ?? ""));
 		setApiKey("");
 		setBaseUrl(resolveBaseUrlForProvider(providerCatalog, nextProviderId, configProviderSettings.baseUrl));
 		setRegion("");
-		setReasoningEffort(configProviderSettings.reasoningEffort ?? "");
+		setReasoningEffort(
+			hasTaskClineSettingsOverride
+				? (taskClineSettings?.reasoningEffort ?? "")
+				: (configProviderSettings.reasoningEffort ?? ""),
+		);
 		setAwsAccessKey("");
 		setAwsSecretKey("");
 		setAwsSessionToken("");
@@ -334,7 +358,9 @@ export function useRuntimeSettingsClineController(
 		configProviderSettings.oauthProvider,
 		configProviderSettings.providerId,
 		configProviderSettings.reasoningEffort,
+		hasTaskClineSettingsOverride,
 		open,
+		taskClineSettings,
 	]);
 
 	useEffect(() => {
@@ -594,21 +620,37 @@ export function useRuntimeSettingsClineController(
 
 	const runOauthLogin = useCallback(async (): Promise<SaveResult> => {
 		if (!managedOauthProvider) {
-			return {
-				ok: false,
-				message: "Choose an OAuth provider from the Provider field first.",
-			};
+			return { ok: false, message: "Choose an OAuth provider from the Provider field first." };
 		}
 		setIsRunningOauthLogin(true);
+		setDeviceAuthInfo(null);
 		try {
-			const response = await runClineProviderOauthLogin(workspaceId, {
-				provider: managedOauthProvider,
-			});
+			let response: RuntimeClineOauthLoginResponse;
+			// Local users (accessing via localhost) get the smoother browser OAuth
+			// flow. Remote/headless users fall back to the device-code flow since
+			// the server may not be able to open the user's browser.
+			const useDeviceAuth = managedOauthProvider === "cline" && !isLocalhostAccess();
+			if (useDeviceAuth) {
+				// Two-phase device auth for remote/headless environments
+				const startResult = await startClineDeviceAuth(workspaceId);
+				setDeviceAuthInfo({
+					userCode: startResult.userCode,
+					verificationUrl: startResult.verificationUrl,
+				});
+				response = await completeClineDeviceAuth(workspaceId, {
+					deviceCode: startResult.deviceCode,
+					expiresInSeconds: startResult.expiresInSeconds,
+					pollIntervalSeconds: startResult.pollIntervalSeconds,
+				});
+			} else {
+				// Browser OAuth flow for local sessions and non-cline providers
+				response = await runClineProviderOauthLogin(workspaceId, {
+					provider: managedOauthProvider,
+				});
+			}
+			setDeviceAuthInfo(null);
 			if (!response.ok) {
-				return {
-					ok: false,
-					message: response.error ?? "OAuth login failed.",
-				};
+				return { ok: false, message: response.error ?? "OAuth login failed." };
 			}
 			const nextSettings = response.settings ?? null;
 			if (nextSettings) {
@@ -622,12 +664,10 @@ export function useRuntimeSettingsClineController(
 			setProviderSettingsOverride(nextSettings);
 			return { ok: true };
 		} catch (error) {
-			return {
-				ok: false,
-				message: error instanceof Error ? error.message : String(error),
-			};
+			return { ok: false, message: error instanceof Error ? error.message : String(error) };
 		} finally {
 			setIsRunningOauthLogin(false);
+			setDeviceAuthInfo(null);
 		}
 	}, [managedOauthProvider, providerCatalog, providerId, workspaceId]);
 
@@ -705,6 +745,7 @@ export function useRuntimeSettingsClineController(
 		isLoadingProviderCatalog,
 		isLoadingProviderModels,
 		isRunningOauthLogin,
+		deviceAuthInfo,
 		normalizedProviderId,
 		managedOauthProvider,
 		isOauthProviderSelected,

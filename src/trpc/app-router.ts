@@ -13,6 +13,9 @@ import type {
 	RuntimeClineAccountSwitchResponse,
 	RuntimeClineAddProviderRequest,
 	RuntimeClineAddProviderResponse,
+	RuntimeClineDeviceAuthCompleteRequest,
+	RuntimeClineDeviceAuthCompleteResponse,
+	RuntimeClineDeviceAuthStartResponse,
 	RuntimeClineKanbanAccessResponse,
 	RuntimeClineMcpAuthStatusResponse,
 	RuntimeClineMcpOAuthRequest,
@@ -34,6 +37,8 @@ import type {
 	RuntimeConfigResponse,
 	RuntimeConfigSaveRequest,
 	RuntimeDebugResetAllStateResponse,
+	RuntimeDirectoryListRequest,
+	RuntimeDirectoryListResponse,
 	RuntimeFeaturebaseTokenResponse,
 	RuntimeGitCheckoutRequest,
 	RuntimeGitCheckoutResponse,
@@ -97,6 +102,9 @@ import {
 	runtimeClineAccountSwitchResponseSchema,
 	runtimeClineAddProviderRequestSchema,
 	runtimeClineAddProviderResponseSchema,
+	runtimeClineDeviceAuthCompleteRequestSchema,
+	runtimeClineDeviceAuthCompleteResponseSchema,
+	runtimeClineDeviceAuthStartResponseSchema,
 	runtimeClineKanbanAccessResponseSchema,
 	runtimeClineMcpAuthStatusResponseSchema,
 	runtimeClineMcpOAuthRequestSchema,
@@ -118,6 +126,8 @@ import {
 	runtimeConfigResponseSchema,
 	runtimeConfigSaveRequestSchema,
 	runtimeDebugResetAllStateResponseSchema,
+	runtimeDirectoryListRequestSchema,
+	runtimeDirectoryListResponseSchema,
 	runtimeFeaturebaseTokenResponseSchema,
 	runtimeGitCheckoutRequestSchema,
 	runtimeGitCheckoutResponseSchema,
@@ -255,6 +265,11 @@ export interface RuntimeTrpcContext {
 			scope: RuntimeTrpcWorkspaceScope | null,
 			input: RuntimeClineOauthLoginRequest,
 		) => Promise<RuntimeClineOauthLoginResponse>;
+		startClineDeviceAuth: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeClineDeviceAuthStartResponse>;
+		completeClineDeviceAuth: (
+			scope: RuntimeTrpcWorkspaceScope | null,
+			input: RuntimeClineDeviceAuthCompleteRequest,
+		) => Promise<RuntimeClineDeviceAuthCompleteResponse>;
 		getClineMcpAuthStatuses: (scope: RuntimeTrpcWorkspaceScope | null) => Promise<RuntimeClineMcpAuthStatusResponse>;
 		runClineMcpServerOAuth: (
 			scope: RuntimeTrpcWorkspaceScope | null,
@@ -341,6 +356,10 @@ export interface RuntimeTrpcContext {
 			input: RuntimeProjectRemoveRequest,
 		) => Promise<RuntimeProjectRemoveResponse>;
 		pickProjectDirectory: (preferredWorkspaceId: string | null) => Promise<RuntimeProjectDirectoryPickerResponse>;
+		listDirectoryContents: (
+			preferredWorkspaceId: string | null,
+			input: RuntimeDirectoryListRequest,
+		) => Promise<RuntimeDirectoryListResponse>;
 	};
 	hooksApi: {
 		ingest: (input: RuntimeHookIngestRequest) => Promise<RuntimeHookIngestResponse>;
@@ -537,6 +556,15 @@ export const runtimeAppRouter = t.router({
 			.mutation(async ({ ctx, input }) => {
 				return await ctx.runtimeApi.runClineProviderOAuthLogin(ctx.workspaceScope, input);
 			}),
+		startClineDeviceAuth: t.procedure.output(runtimeClineDeviceAuthStartResponseSchema).mutation(async ({ ctx }) => {
+			return await ctx.runtimeApi.startClineDeviceAuth(ctx.workspaceScope);
+		}),
+		completeClineDeviceAuth: t.procedure
+			.input(runtimeClineDeviceAuthCompleteRequestSchema)
+			.output(runtimeClineDeviceAuthCompleteResponseSchema)
+			.mutation(async ({ ctx, input }) => {
+				return await ctx.runtimeApi.completeClineDeviceAuth(ctx.workspaceScope, input);
+			}),
 		startShellSession: workspaceProcedure
 			.input(runtimeShellSessionStartRequestSchema)
 			.output(runtimeShellSessionStartResponseSchema)
@@ -669,6 +697,12 @@ export const runtimeAppRouter = t.router({
 		pickDirectory: t.procedure.output(runtimeProjectDirectoryPickerResponseSchema).mutation(async ({ ctx }) => {
 			return await ctx.projectsApi.pickProjectDirectory(ctx.requestedWorkspaceId);
 		}),
+		listDirectoryContents: t.procedure
+			.input(runtimeDirectoryListRequestSchema)
+			.output(runtimeDirectoryListResponseSchema)
+			.query(async ({ ctx, input }) => {
+				return await ctx.projectsApi.listDirectoryContents(ctx.requestedWorkspaceId, input);
+			}),
 	}),
 	hooks: t.router({
 		ingest: t.procedure

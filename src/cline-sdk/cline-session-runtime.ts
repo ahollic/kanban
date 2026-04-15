@@ -190,6 +190,7 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 			}
 		}
 		this.replaceTaskMcpToolBundle(request.taskId, mcpToolBundle);
+		const hasMcpExtraTools = Boolean(mcpToolBundle && mcpToolBundle.tools.length > 0);
 
 		const sessionHost = await this.ensureSessionHost();
 		let startResult: Awaited<ReturnType<ClineSessionHostBoundary["start"]>>;
@@ -201,12 +202,16 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 					modelId: request.modelId,
 					apiKey: request.apiKey?.trim() || undefined,
 					baseUrl: request.baseUrl?.trim() || undefined,
-					reasoningEffort: request.reasoningEffort ?? undefined,
+					reasoningEffort:
+						request.reasoningEffort === null
+							? ("none" as ClineSdkStartSessionInput["config"]["reasoningEffort"])
+							: (request.reasoningEffort ?? undefined),
 					cwd: request.cwd,
 					mode: resolvedMode,
 					enableTools: true,
 					enableSpawnAgent: false,
 					enableAgentTeams: false,
+					...(hasMcpExtraTools ? { disableMcpSettingsTools: true } : {}),
 					execution: {
 						maxConsecutiveMistakes: DEFAULT_CLINE_MAX_CONSECUTIVE_MISTAKES,
 					},
@@ -218,7 +223,7 @@ export class InMemoryClineSessionRuntime implements ClineSessionRuntime {
 						providerId: request.providerId,
 						modelId: request.modelId,
 					}),
-					...(mcpToolBundle && mcpToolBundle.tools.length > 0 ? { extraTools: mcpToolBundle.tools } : {}),
+					...(hasMcpExtraTools ? { extraTools: mcpToolBundle?.tools ?? [] } : {}),
 				},
 				prompt: request.prompt,
 				initialMessages: request.initialMessages,

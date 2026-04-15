@@ -144,6 +144,9 @@ function setSelectedProviderSettings(
 		model?: string;
 		baseUrl?: string;
 		apiKey?: string;
+		reasoning?: {
+			effort?: "low" | "medium" | "high" | "xhigh";
+		};
 		auth?: {
 			accessToken?: string;
 			refreshToken?: string;
@@ -509,6 +512,121 @@ describe("createRuntimeApi startTaskSession", () => {
 				mode: "act",
 				startInPlanMode: true,
 				resumeFromTrash: undefined,
+			}),
+		);
+		expect(terminalManager.startTaskSession).not.toHaveBeenCalled();
+	});
+
+	it("applies task-level reasoning overrides even without task model/provider overrides", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
+		setSelectedProviderSettings({
+			provider: "anthropic",
+			model: "claude-sonnet-4-6",
+			apiKey: "anthropic-api-key",
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary()),
+			applyTurnCheckpoint: vi.fn(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		clineTaskSessionService.startTaskSession.mockResolvedValue(createSummary({ agentId: "cline", pid: null }));
+
+		const api = createRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cline";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-1",
+				baseRef: "main",
+				prompt: "Reasoning-only override task",
+				clineSettings: {
+					reasoningEffort: "medium",
+				},
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(clineTaskSessionService.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerId: "anthropic",
+				modelId: "claude-sonnet-4-6",
+				reasoningEffort: "medium",
+			}),
+		);
+		expect(terminalManager.startTaskSession).not.toHaveBeenCalled();
+	});
+
+	it("uses model-default reasoning when a task overrides the model but leaves reasoning on default", async () => {
+		taskWorktreeMocks.resolveTaskCwd.mockResolvedValue("/tmp/existing-worktree");
+		agentRegistryMocks.resolveAgentCommand.mockReturnValue(null);
+		setSelectedProviderSettings({
+			provider: "anthropic",
+			model: "claude-sonnet-4-6",
+			apiKey: "anthropic-api-key",
+			reasoning: {
+				effort: "high",
+			},
+		});
+
+		const terminalManager = {
+			startTaskSession: vi.fn(async () => createSummary()),
+			applyTurnCheckpoint: vi.fn(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		clineTaskSessionService.startTaskSession.mockResolvedValue(createSummary({ agentId: "cline", pid: null }));
+
+		const api = createRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => {
+				const runtimeConfigState = createRuntimeConfigState();
+				runtimeConfigState.selectedAgentId = "cline";
+				return runtimeConfigState;
+			}),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => terminalManager as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.startTaskSession(
+			{
+				workspaceId: "workspace-1",
+				workspacePath: "/tmp/repo",
+			},
+			{
+				taskId: "task-1",
+				baseRef: "main",
+				prompt: "Task with model override",
+				clineSettings: {
+					modelId: "anthropic/claude-opus-4.6",
+				},
+			},
+		);
+
+		expect(response.ok).toBe(true);
+		expect(clineTaskSessionService.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerId: "anthropic",
+				modelId: "anthropic/claude-opus-4.6",
+				reasoningEffort: null,
 			}),
 		);
 		expect(terminalManager.startTaskSession).not.toHaveBeenCalled();
@@ -1481,6 +1599,57 @@ describe("createRuntimeApi startTaskSession", () => {
 			}),
 			expect.any(Object),
 		);
+		expect(response.message).toEqual(latestMessage);
+	});
+
+	it("starts home chat sessions from persisted history with current launch config", async () => {
+		const summary = createSummary({ agentId: "cline", pid: null });
+		const latestMessage = {
+			id: "message-home-rebound-1",
+			role: "user" as const,
+			content: "continue home",
+			createdAt: Date.now(),
+		};
+		const clineTaskSessionService = createClineTaskSessionServiceMock();
+		clineTaskSessionService.sendTaskSessionInput.mockResolvedValueOnce(null);
+		clineTaskSessionService.startTaskSession.mockResolvedValue(summary);
+		clineTaskSessionService.listMessages.mockReturnValue([latestMessage]);
+		setSelectedProviderSettings({
+			provider: "cline",
+			auth: {
+				accessToken: "seed-token",
+				refreshToken: "seed-refresh",
+				expiresAt: Date.now() + 3_600_000,
+			},
+		});
+
+		const api = createRuntimeApi({
+			getActiveWorkspaceId: vi.fn(() => "workspace-1"),
+			loadScopedRuntimeConfig: vi.fn(async () => createRuntimeConfigState()),
+			setActiveRuntimeConfig: vi.fn(),
+			getScopedTerminalManager: vi.fn(async () => ({}) as never),
+			getScopedClineTaskSessionService: vi.fn(async () => clineTaskSessionService as never),
+			resolveInteractiveShellCommand: vi.fn(),
+			runCommand: vi.fn(),
+		});
+
+		const response = await api.sendTaskChatMessage(
+			{ workspaceId: "workspace-1", workspacePath: "/tmp/repo" },
+			{ taskId: "__home_agent__:workspace-1", text: "continue home" },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(clineTaskSessionService.startTaskSession).toHaveBeenCalledWith(
+			expect.objectContaining({
+				taskId: "__home_agent__:workspace-1",
+				cwd: "/tmp/repo",
+				prompt: "continue home",
+				resumeFromPersistence: true,
+				providerId: "cline",
+				apiKey: "workos:oauth-access",
+			}),
+		);
+		expect(clineTaskSessionService.sendTaskSessionInput).toHaveBeenCalledTimes(1);
 		expect(response.message).toEqual(latestMessage);
 	});
 

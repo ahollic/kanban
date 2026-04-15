@@ -1,6 +1,6 @@
 import * as RadixCheckbox from "@radix-ui/react-checkbox";
-import { Check, ExternalLink, Pencil, Plus, X } from "lucide-react";
-import { type ReactElement, type ReactNode, useMemo, useState } from "react";
+import { Check, Copy, ExternalLink, Pencil, Plus, X } from "lucide-react";
+import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import {
 	buildClineAgentModelPickerOptions,
@@ -13,6 +13,7 @@ import {
 	type ClineProviderDialogMode,
 } from "@/components/shared/cline-add-provider-dialog";
 import { Button } from "@/components/ui/button";
+import { NativeSelect } from "@/components/ui/native-select";
 import type {
 	AddClineProviderInput,
 	UpdateClineProviderInput,
@@ -22,6 +23,7 @@ import type { UseRuntimeSettingsClineMcpControllerResult } from "@/hooks/use-run
 import { openFileOnHost } from "@/runtime/runtime-config-query";
 import type { RuntimeClineMcpServer, RuntimeClineReasoningEffort } from "@/runtime/types";
 import { formatPathForDisplay } from "@/utils/path-display";
+import { useCopyToClipboard } from "@/utils/react-use";
 
 function formatExpiry(value: string): string {
 	const trimmed = value.trim();
@@ -51,7 +53,6 @@ export function ClineSetupSection({
 	mcpController,
 	controlsDisabled,
 	workspaceId = null,
-	showHeading = true,
 	showMcpSettings = true,
 	accountSection = null,
 	onError,
@@ -61,7 +62,6 @@ export function ClineSetupSection({
 	mcpController?: UseRuntimeSettingsClineMcpControllerResult;
 	controlsDisabled: boolean;
 	workspaceId?: string | null;
-	showHeading?: boolean;
 	showMcpSettings?: boolean;
 	accountSection?: ReactNode;
 	onError?: (message: string | null) => void;
@@ -70,6 +70,42 @@ export function ClineSetupSection({
 	const mcpControlsDisabled = controlsDisabled || (mcpController?.isSavingMcpSettings ?? false);
 	const [isAddProviderDialogOpen, setIsAddProviderDialogOpen] = useState(false);
 	const [providerDialogMode, setProviderDialogMode] = useState<ClineProviderDialogMode>("add");
+	const [isDeviceCodeCopied, setIsDeviceCodeCopied] = useState(false);
+	const deviceCodeCopiedResetTimerRef = useRef<number | null>(null);
+	const [copiedDeviceCodeState, copyDeviceCode] = useCopyToClipboard();
+
+	useEffect(() => {
+		return () => {
+			if (deviceCodeCopiedResetTimerRef.current !== null) {
+				window.clearTimeout(deviceCodeCopiedResetTimerRef.current);
+				deviceCodeCopiedResetTimerRef.current = null;
+			}
+		};
+	}, []);
+
+	useEffect(() => {
+		setIsDeviceCodeCopied(false);
+	}, [controller.deviceAuthInfo?.userCode]);
+
+	useEffect(() => {
+		if (!copiedDeviceCodeState.value || copiedDeviceCodeState.value !== controller.deviceAuthInfo?.userCode) {
+			return;
+		}
+		if (copiedDeviceCodeState.error) {
+			onError?.("Could not copy code automatically. Please copy it manually.");
+			setIsDeviceCodeCopied(false);
+			return;
+		}
+		onError?.(null);
+		setIsDeviceCodeCopied(true);
+		if (deviceCodeCopiedResetTimerRef.current !== null) {
+			window.clearTimeout(deviceCodeCopiedResetTimerRef.current);
+		}
+		deviceCodeCopiedResetTimerRef.current = window.setTimeout(() => {
+			setIsDeviceCodeCopied(false);
+			deviceCodeCopiedResetTimerRef.current = null;
+		}, 2000);
+	}, [copiedDeviceCodeState, controller.deviceAuthInfo?.userCode, onError]);
 
 	const clineProviderOptions = useMemo((): SearchSelectOption[] => {
 		const items: SearchSelectOption[] = controller.providerCatalog.map((provider) => ({
@@ -222,11 +258,16 @@ export function ClineSetupSection({
 		});
 	};
 
+	const handleCopyDeviceCode = (code: string) => {
+		setIsDeviceCodeCopied(false);
+		onError?.(null);
+		copyDeviceCode(code);
+	};
+
 	return (
 		<>
-			{showHeading ? <h6 className="font-semibold text-text-primary mt-4 mb-2">Cline setup</h6> : null}
-			<div className="rounded-lg border border-border bg-surface-0 p-4 mt-2">
-				<p className="text-text-primary font-semibold text-[13px] mt-0 mb-3">API provider</p>
+			<div className="mt-2">
+				<p className="text-text-primary font-semibold text-[12px] mt-0 mb-2">API provider</p>
 				<div className="min-w-0 w-1/2 max-w-full">
 					<div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
 						<div className="min-w-0">
@@ -291,36 +332,41 @@ export function ClineSetupSection({
 				{controller.isLoadingProviderCatalog ? (
 					<p className="text-text-secondary text-[12px] mt-1 mb-0">Fetching Cline providers...</p>
 				) : null}
-				{controller.isOauthProviderSelected ? null : (
-					<div className="min-w-0 mt-4">
-						<p className="text-text-secondary text-[12px] mt-0 mb-1">API key</p>
-						<input
-							type="password"
-							value={controller.apiKey}
-							onChange={(event) => controller.setApiKey(event.target.value)}
-							placeholder={apiKeyPlaceholder}
-							disabled={controlsDisabled}
-							className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
-						/>
-						{providerEnvHint ? (
-							<p className="text-text-tertiary text-[11px] mt-1 mb-0 break-all">Or use {providerEnvHint}</p>
-						) : null}
-					</div>
-				)}
-				{shouldShowBaseUrlField ? (
-					<div className="min-w-0 mt-4">
-						<p className="text-text-secondary text-[12px] mt-0 mb-1">Base URL</p>
-						<input
-							value={controller.baseUrl}
-							onChange={(event) => controller.setBaseUrl(event.target.value)}
-							placeholder="https://api.cline.bot"
-							disabled={controlsDisabled}
-							className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
-						/>
-					</div>
-				) : null}
+				<div
+					className="grid gap-2 mt-3"
+					style={{ gridTemplateColumns: controller.isOauthProviderSelected ? "1fr" : "1fr 1fr" }}
+				>
+					{controller.isOauthProviderSelected ? null : (
+						<div className="min-w-0">
+							<p className="text-text-secondary text-[12px] mt-0 mb-1">API key</p>
+							<input
+								type="password"
+								value={controller.apiKey}
+								onChange={(event) => controller.setApiKey(event.target.value)}
+								placeholder={apiKeyPlaceholder}
+								disabled={controlsDisabled}
+								className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+							/>
+							{providerEnvHint ? (
+								<p className="text-text-tertiary text-[11px] mt-1 mb-0 break-all">Or use {providerEnvHint}</p>
+							) : null}
+						</div>
+					)}
+					{shouldShowBaseUrlField ? (
+						<div className="min-w-0">
+							<p className="text-text-secondary text-[12px] mt-0 mb-1">Base URL</p>
+							<input
+								value={controller.baseUrl}
+								onChange={(event) => controller.setBaseUrl(event.target.value)}
+								placeholder="https://api.cline.bot"
+								disabled={controlsDisabled}
+								className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary placeholder:text-text-tertiary focus:border-border-focus focus:outline-none"
+							/>
+						</div>
+					) : null}
+				</div>
 				{isBedrockProvider ? (
-					<div className="grid gap-4 mt-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+					<div className="grid gap-2 mt-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
 						<div className="min-w-0">
 							<p className="text-text-secondary text-[12px] mt-0 mb-1">AWS region</p>
 							<input
@@ -333,19 +379,19 @@ export function ClineSetupSection({
 						</div>
 						<div className="min-w-0">
 							<p className="text-text-secondary text-[12px] mt-0 mb-1">Auth mode</p>
-							<select
+							<NativeSelect
+								fill
 								value={controller.awsAuthentication}
 								onChange={(event) =>
 									controller.setAwsAuthentication(event.target.value as "" | "iam" | "api-key" | "profile")
 								}
 								disabled={controlsDisabled}
-								className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary focus:border-border-focus focus:outline-none"
 							>
 								<option value="">Auto</option>
 								<option value="iam">IAM</option>
 								<option value="api-key">Access keys</option>
 								<option value="profile">Profile</option>
-							</select>
+							</NativeSelect>
 						</div>
 						<div className="min-w-0">
 							<p className="text-text-secondary text-[12px] mt-0 mb-1">AWS profile</p>
@@ -403,7 +449,7 @@ export function ClineSetupSection({
 					</div>
 				) : null}
 				{isVertexProvider ? (
-					<div className="grid gap-4 mt-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
+					<div className="grid gap-2 mt-2" style={{ gridTemplateColumns: "1fr 1fr" }}>
 						<div className="min-w-0">
 							<p className="text-text-secondary text-[12px] mt-0 mb-1">GCP project ID</p>
 							<input
@@ -427,31 +473,62 @@ export function ClineSetupSection({
 					</div>
 				) : null}
 				{controller.isOauthProviderSelected ? (
-					<div className="mt-4 pt-4 border-t border-border/40">
-						<p className="text-text-primary font-semibold text-[13px] mt-0 mb-2">Account</p>
-						<div className="flex flex-col gap-1.5">
-							<div className="flex items-baseline justify-between">
-								<span className="text-text-secondary text-[12px]">Status</span>
-								<span className="text-text-primary text-[12px] font-medium">
-									{controller.oauthConfigured ? "Signed in" : "Not signed in"}
-								</span>
+					<>
+						<p className="text-text-secondary text-[12px] mt-1 mb-0">
+							Status: {controller.oauthConfigured ? "Signed in" : "Not signed in"}
+						</p>
+						{controller.oauthAccountId ? (
+							<p className="text-text-secondary text-[12px] mt-1 mb-0">
+								Account ID: <span className="text-text-primary">{controller.oauthAccountId}</span>
+							</p>
+						) : null}
+						{controller.oauthExpiresAt ? (
+							<p className="text-text-secondary text-[12px] mt-1 mb-0">
+								Expiry: <span className="text-text-primary">{formatExpiry(controller.oauthExpiresAt)}</span>
+							</p>
+						) : null}
+						{controller.isRunningOauthLogin && controller.deviceAuthInfo ? (
+							<div className="mt-2 rounded-md border border-border bg-surface-2 p-3">
+								<p className="text-text-secondary text-[13px] font-medium mt-0 mb-2">Sign in to Cline</p>
+								<ol className="list-decimal pl-4 text-[12px] text-text-primary m-0">
+									<li>
+										Go to this URL:{" "}
+										<a
+											href={controller.deviceAuthInfo.verificationUrl}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="break-all text-accent underline"
+										>
+											{controller.deviceAuthInfo.verificationUrl}
+										</a>
+									</li>
+									<li className="mt-2">
+										Enter this code:
+										<div className="mt-1 flex items-center gap-2">
+											<p className="text-text-primary text-[18px] font-mono font-bold tracking-wider m-0">
+												{controller.deviceAuthInfo.userCode}
+											</p>
+											<Button
+												variant="ghost"
+												size="sm"
+												icon={isDeviceCodeCopied ? <Check size={14} /> : <Copy size={14} />}
+												onClick={() => {
+													const userCode = controller.deviceAuthInfo?.userCode;
+													if (!userCode) {
+														return;
+													}
+													handleCopyDeviceCode(userCode);
+												}}
+												disabled={controlsDisabled || !controller.deviceAuthInfo}
+											>
+												{isDeviceCodeCopied ? "Copied" : "Copy"}
+											</Button>
+										</div>
+									</li>
+								</ol>
 							</div>
-							{controller.oauthAccountId ? (
-								<div className="flex items-baseline justify-between">
-									<span className="text-text-secondary text-[12px]">Account ID</span>
-									<span className="text-text-primary text-[12px] font-mono">{controller.oauthAccountId}</span>
-								</div>
-							) : null}
-							{controller.oauthExpiresAt ? (
-								<div className="flex items-baseline justify-between">
-									<span className="text-text-secondary text-[12px]">Expiry</span>
-									<span className="text-text-primary text-[12px]">
-										{formatExpiry(controller.oauthExpiresAt)}
-									</span>
-								</div>
-							) : null}
-						</div>
-						<div className="mt-3">
+						) : null}
+						<div className="mt-2">
 							<Button
 								variant="default"
 								size="sm"
@@ -459,21 +536,23 @@ export function ClineSetupSection({
 								onClick={handleOauthLogin}
 							>
 								{controller.isRunningOauthLogin
-									? "Signing in..."
+									? controller.deviceAuthInfo
+										? "Waiting for confirmation..."
+										: "Signing in..."
 									: controller.oauthConfigured
 										? `Sign in again with ${controller.managedOauthProvider ?? "OAuth"}`
 										: `Sign in with ${controller.managedOauthProvider ?? "OAuth"}`}
 							</Button>
 						</div>
-					</div>
+					</>
 				) : null}
 			</div>
 			{accountSection ? <div className="mt-4">{accountSection}</div> : null}
 
-			<div className="rounded-lg border border-border bg-surface-0 p-4 mt-3">
-				<p className="text-text-primary font-semibold text-[13px] mt-0 mb-3">Model</p>
+			<div className="mt-4">
+				<p className="text-text-primary font-semibold text-[12px] mt-0 mb-2">Model</p>
 				<div
-					className="grid gap-4"
+					className="grid gap-2"
 					style={{ gridTemplateColumns: controller.selectedModelSupportsReasoningEffort ? "1fr 1fr" : "1fr" }}
 				>
 					<div className="min-w-0">
@@ -522,14 +601,14 @@ export function ClineSetupSection({
 					) : null}
 				</div>
 				{controller.isLoadingProviderModels ? (
-					<p className="text-text-secondary text-[12px] mt-2 mb-0">Fetching Cline models...</p>
+					<p className="text-text-secondary text-[12px] mt-1 mb-0">Fetching Cline models...</p>
 				) : null}
 			</div>
 
-			{showHeading && mcpController && showMcpSettings ? (
+			{mcpController && showMcpSettings ? (
 				<>
 					<div className="flex items-center justify-between mt-4 mb-2">
-						<h6 className="font-semibold text-text-primary m-0">MCP servers</h6>
+						<h6 className="font-semibold text-[12px] text-text-primary m-0">MCP servers</h6>
 						<Button
 							variant="ghost"
 							size="sm"
@@ -620,7 +699,8 @@ export function ClineSetupSection({
 										</div>
 										<div className="min-w-0">
 											<p className="text-text-secondary text-[12px] mt-0 mb-1">Transport</p>
-											<select
+											<NativeSelect
+												fill
 												value={server.type}
 												onChange={(event) => {
 													const nextType = event.target.value as RuntimeClineMcpServer["type"];
@@ -642,12 +722,11 @@ export function ClineSetupSection({
 													});
 												}}
 												disabled={mcpControlsDisabled}
-												className="h-8 w-full rounded-md border border-border bg-surface-2 px-2 text-[13px] text-text-primary focus:border-border-focus focus:outline-none"
 											>
 												<option value="streamableHttp">HTTP</option>
 												<option value="sse">SSE</option>
 												<option value="stdio">Stdio</option>
-											</select>
+											</NativeSelect>
 										</div>
 									</div>
 
